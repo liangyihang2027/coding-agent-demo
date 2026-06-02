@@ -1,0 +1,32 @@
+{
+  "name": "claude-mini",
+  "version": "0.1.0",
+  "description": "从零复刻 Claude Code 单 Agent 工程内核（学习项目）",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "claude-mini": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "openai": "^4.67.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
