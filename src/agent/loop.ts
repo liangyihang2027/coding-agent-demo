@@ -1,6 +1,7 @@
 import type { LLMClient, ToolCall, ToolContext } from "../types/index.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import { ConversationState } from "./state.js";
+import type { AgentRunner } from "./runner.js";
 
 /**
  * Agent Loop / Harness（阶段 1 必做，得分点：状态机设计）。
@@ -32,7 +33,7 @@ export interface AgentLoopOptions {
   maxSteps?: number;
 }
 
-export class AgentLoop {
+export class AgentLoop implements AgentRunner {
   private llm: LLMClient;
   private tools: ToolRegistry;
   private cwd: string;
