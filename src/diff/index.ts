@@ -26,7 +26,29 @@ export type StrReplaceResult =
   | { ok: true; result: string }
   | { ok: false; reason: "not_found" | "ambiguous"; matches: number };
 
-export function strReplace(_input: StrReplaceInput): StrReplaceResult {
-  // TODO 阶段2：实现我。先让 tests/diff.test.ts 跑起来再逐个 case 转绿。
-  throw new Error("strReplace 尚未实现（阶段 2 ⭐ 你的任务）");
+export function strReplace(input: StrReplaceInput): StrReplaceResult {
+  const { source, oldText, newText } = input;
+  if (!oldText) {
+    return { ok: false, reason: "not_found", matches: 0 };
+  }
+
+  let matches = 0;
+  let from = 0;
+  while (from <= source.length) {
+    const idx = source.indexOf(oldText, from);
+    if (idx === -1) break;
+    matches++;
+    from = idx + Math.max(1, oldText.length);
+  }
+
+  if (matches === 0) {
+    return { ok: false, reason: "not_found", matches: 0 };
+  }
+  if (matches > 1) {
+    return { ok: false, reason: "ambiguous", matches };
+  }
+
+  const at = source.indexOf(oldText);
+  const result = source.slice(0, at) + newText + source.slice(at + oldText.length);
+  return { ok: true, result };
 }

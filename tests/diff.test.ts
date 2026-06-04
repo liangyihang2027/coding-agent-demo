@@ -8,7 +8,7 @@ import { strReplace } from "../src/diff/index.js";
  * 把 describe.skip 改成 describe，逐个让它们转绿。
  * 这就是「工程严谨度」的证明，也是面试可以直接展示的东西。
  */
-describe.skip("strReplace（阶段 2 实现后启用）", () => {
+describe("strReplace", () => {
   it("唯一匹配：正常替换", () => {
     const r = strReplace({
       source: "const a = 1;\nconst b = 2;\n",

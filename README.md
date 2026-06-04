@@ -33,7 +33,7 @@ CLI 入口 → Agent Loop(ReAct) → { LLM客户端 / 上下文管理⭐ / 工�
 |---|---|---|---|
 | LLM 流式客户端 + tool_calls 拼接 | `src/llm/` | 1 | ✅ 已实现 |
 | 工具注册表 + zod 校验 | `src/tools/registry.ts` | 1 | ✅ 已实现 |
-| 基础工具 read/write/run | `src/tools/*.ts` | 1 | ✅ 已实现 |
+| 基础工具 read/write/edit/list/glob/grep/delete/run | `src/tools/*.ts` | 1 | ✅ 已实现 |
 | Agent Loop / 会话状态 | `src/agent/` | 1 | ✅ 已实现 |
 | CLI 入口 | `src/cli/` | 1 | ✅ 已实现 |
 | **Diff / Patch 引擎** ⭐ | `src/diff/` | 2 | ⬜ 待你实现 |
