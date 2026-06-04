@@ -1,22 +1,76 @@
-import type { ToolCall } from "../types/index.js";
-
 /**
- * 阶段 6「权限 / 审批闸门」（必做，非 ⭐ 但属系统设计得分点）。
+ * 阶段 6「权限 / 审批闸门」——最小可扩展版本。
  *
- * 目标（蓝图 §阶段6）：工具调用前做风险分级 + 人工确认闸门。
+ * 已实现：
+ *   - 工具风险分级（assessToolRisk / DefaultPermissionGate）
+ *   - 高风险（及默认中风险）执行前 confirm
+ *   - run_command 危险命令模式检测（与 sandbox 阶段 3 可共享 DANGEROUS_COMMAND_PATTERNS）
+ *   - AgentLoop 工具执行前 gating
  *
- * 待你实现：
- *   [ ] 风险分级：read_file(低) / write_file(中) / run_command(高，尤其危险命令)
- *   [ ] gating：高风险调用前要求用户确认（CLI 里 y/n）
- *   [ ] 与 sandbox 的危险命令检测协同
+ * 后续扩展点：
+ *   - CLI approval overlay（消费 PermissionRequest + AgentEvents.onPermissionPrompt）
+ *   - 会话级「记住此次选择」、按路径/命令白名单
+ *   - 与 sandbox 拦截双层防御
+ *   - CursorAgentAdapter 侧工具审批（当前仅 OpenAI AgentLoop）
  */
 
-export type RiskLevel = "low" | "medium" | "high";
+export type {
+  PermissionConfirmHandler,
+  PermissionGate,
+  PermissionRequest,
+  RiskLevel,
+} from "./types.js";
 
-export interface PermissionGate {
-  assess(call: ToolCall): RiskLevel;
-  /** 返回 true 表示允许执行 */
-  confirm(call: ToolCall, risk: RiskLevel): Promise<boolean>;
+export {
+  DANGEROUS_COMMAND_PATTERNS,
+  DEFAULT_TOOL_RISK,
+  assessToolRisk,
+  isDangerousCommand,
+  parseRunCommandArg,
+  riskRequiresConfirmation,
+} from "./risk.js";
+
+export {
+  AllowAllPermissionGate,
+  DefaultPermissionGate,
+  type DefaultPermissionGateOptions,
+} from "./gate.js";
+
+export {
+  createAlwaysAllowConfirm,
+  createAlwaysDenyConfirm,
+  createStdioConfirm,
+  type StdioConfirmOptions,
+} from "./confirm.js";
+
+import {
+  createAlwaysAllowConfirm,
+  createStdioConfirm,
+} from "./confirm.js";
+import { AllowAllPermissionGate, DefaultPermissionGate } from "./gate.js";
+import type { PermissionConfirmHandler } from "./types.js";
+
+export type PermissionMode = "off" | "ask" | "allow";
+
+export function resolvePermissionMode(
+  env = process.env.CLAUDE_MINI_PERMISSION
+): PermissionMode {
+  const v = env?.trim().toLowerCase();
+  if (v === "off" || v === "0" || v === "false") return "off";
+  if (v === "allow" || v === "yes") return "allow";
+  return "ask";
 }
 
-// TODO 阶段6：实现风险评估与确认闸门，并接入 AgentLoop 工具执行前。
+/** CLI 入口用的默认闸门 */
+export function createDefaultPermissionGate(
+  mode: PermissionMode = resolvePermissionMode()
+) {
+  if (mode === "off") {
+    return new AllowAllPermissionGate();
+  }
+
+  const confirm: PermissionConfirmHandler =
+    mode === "allow" ? createAlwaysAllowConfirm() : createStdioConfirm();
+
+  return new DefaultPermissionGate({ confirm });
+}

@@ -40,7 +40,7 @@ CLI 入口 → Agent Loop(ReAct) → { LLM客户端 / 上下文管理⭐ / 工�
 | **沙箱 / 命令执行** ⭐ | `src/sandbox/` | 3 | ⬜ 仅占位（naive 版） |
 | **代码库检索** ⭐ | `src/search/` | 4 | ⬜ 待你实现 |
 | **上下文管理** ⭐ | `src/context/` | 5 | ⬜ 待你实现 |
-| 权限 / 审批闸门 | `src/permission/` | 6 | ⬜ 待你实现 |
+| 权限 / 审批闸门 | `src/permission/` | 6 | ✅ 最小版（分级 + y/n + AgentLoop 接入） |
 
 ⭐ = 必须亲手实现、禁止调库的灵魂模块。
 

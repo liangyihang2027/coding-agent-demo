@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput, useStdout } from "ink";
 import type { AppConfig } from "./config.js";
 import type { AgentRunner } from "../agent/runner.js";
 import type { ConversationState } from "../agent/state.js";
+import type { PermissionRequest } from "../permission/types.js";
 
 type Entry =
   | { id: string; kind: "welcome"; text: string }
@@ -36,6 +37,11 @@ interface ComposerProps {
   onInterrupt: () => void;
 }
 
+interface PendingApproval {
+  request: PermissionRequest;
+  resolve: (allowed: boolean) => void;
+}
+
 const h = React.createElement;
 
 export function CodexLikeApp({
@@ -52,6 +58,7 @@ export function CodexLikeApp({
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState("准备就绪");
   const [history, setHistory] = useState<string[]>([]);
+  const [approval, setApproval] = useState<PendingApproval | null>(null);
   const seq = useRef(0);
   const turnSeq = useRef(0);
   const exitArmedUntil = useRef(0);
@@ -78,6 +85,32 @@ export function CodexLikeApp({
     [nextId]
   );
 
+  const resolveApproval = useCallback(
+    (allowed: boolean) => {
+      if (!approval) return;
+      const { request, resolve } = approval;
+      setApproval(null);
+      setStatus(allowed ? `已允许 ${request.call.name}` : `已拒绝 ${request.call.name}`);
+      resolve(allowed);
+    },
+    [approval]
+  );
+
+  useInput(
+    (input, key) => {
+      if (!approval) return;
+      const normalized = input.toLowerCase();
+      if (normalized === "y") {
+        resolveApproval(true);
+        return;
+      }
+      if (normalized === "n" || key.escape || (key.ctrl && normalized === "c")) {
+        resolveApproval(false);
+      }
+    },
+    { isActive: approval != null }
+  );
+
   const submit = useCallback(
     (raw: string) => {
       const input = raw.trim();
@@ -99,6 +132,12 @@ export function CodexLikeApp({
 
       void runner
         .run(state, input, {
+          onPermissionPrompt: (request) =>
+            new Promise<boolean>((resolve) => {
+              currentAssistantId = null;
+              setStatus(`等待确认 ${request.call.name}`);
+              setApproval({ request, resolve });
+            }),
           onText: (delta) => {
             if (turn !== turnSeq.current || !delta) return;
             setStatus("生成回复中");
@@ -142,6 +181,24 @@ export function CodexLikeApp({
               ...tool,
               chunks: tool.chunks + chunk,
             })));
+          },
+          onToolDenied: (call, reason) => {
+            if (turn !== turnSeq.current) return;
+            currentAssistantId = null;
+            setStatus(`已拒绝 ${call.name}`);
+            setEntries((prev) => [
+              ...prev,
+              {
+                id: nextId("tool"),
+                kind: "tool",
+                callId: call.id,
+                name: call.name,
+                args: call.arguments,
+                status: "error",
+                chunks: "",
+                result: reason,
+              },
+            ]);
           },
           onToolResult: (call, content, isError) => {
             if (turn !== turnSeq.current) return;
@@ -200,6 +257,7 @@ export function CodexLikeApp({
     { flexDirection: "column", minHeight: height },
     h(Header, { config, cwd, running }),
     h(MessageList, { entries: visibleEntries, height: transcriptHeight }),
+    approval ? h(ApprovalPrompt, { request: approval.request }) : null,
     h(StatusBar, { status, running }),
     h(Composer, {
       disabled: running,
@@ -209,6 +267,17 @@ export function CodexLikeApp({
       onExit: handleExit,
       onInterrupt: handleInterrupt,
     })
+  );
+}
+
+function ApprovalPrompt({ request }: { request: PermissionRequest }) {
+  const color = request.risk === "high" ? "red" : request.risk === "medium" ? "yellow" : "blue";
+  return h(
+    Box,
+    { flexDirection: "column", borderStyle: "double", borderColor: color, paddingX: 1, marginX: 1, marginBottom: 1 },
+    h(Text, { color, bold: true }, `权限确认 · ${request.risk}`),
+    h(Text, null, request.summary),
+    h(Text, { dimColor: true }, "按 y 允许，n / Esc / Ctrl+C 拒绝")
   );
 }
 

@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { OpenAIClient } from "../llm/client.js";
 import { createDefaultRegistry } from "../tools/index.js";
 import { AgentLoop } from "../agent/loop.js";
+import { createDefaultPermissionGate } from "../permission/index.js";
 import { ConversationState } from "../agent/state.js";
 import type { AgentRunner } from "../agent/runner.js";
 import { loadSystemPrompt } from "../prompts/load-system-prompt.js";
@@ -19,7 +20,12 @@ async function createRunner(config: ReturnType<typeof loadConfig>, cwd: string):
 
   const llm = new OpenAIClient(config);
   const tools = createDefaultRegistry();
-  return new AgentLoop({ llm, tools, cwd });
+  return new AgentLoop({
+    llm,
+    tools,
+    cwd,
+    permission: createDefaultPermissionGate(),
+  });
 }
 
 async function main() {

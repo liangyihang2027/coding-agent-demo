@@ -1,5 +1,8 @@
 import type { LLMClient, ToolCall, ToolContext } from "../types/index.js";
 import type { ToolRegistry } from "../tools/registry.js";
+import type { PermissionGate, RiskLevel } from "../permission/index.js";
+import { AllowAllPermissionGate, DefaultPermissionGate } from "../permission/index.js";
+import type { PermissionConfirmHandler } from "../permission/types.js";
 import { ConversationState } from "./state.js";
 import type { AgentRunner } from "./runner.js";
 
@@ -18,6 +21,13 @@ export interface AgentEvents {
   onText?: (delta: string) => void;
   /** 模型决定调用工具 */
   onToolCall?: (call: ToolCall) => void;
+  /**
+   * 可选：覆盖 DefaultPermissionGate 的 confirm（例如 Ink approval overlay）。
+   * 未提供时使用构造 AgentLoop 时注入的 PermissionGate。
+   */
+  onPermissionPrompt?: PermissionConfirmHandler;
+  /** 用户拒绝或策略拦截，未执行工具 */
+  onToolDenied?: (call: ToolCall, reason: string) => void;
   /** 工具执行完毕 */
   onToolResult?: (call: ToolCall, content: string, isError: boolean) => void;
   /** 命令类工具的实时输出 */
@@ -31,6 +41,8 @@ export interface AgentLoopOptions {
   tools: ToolRegistry;
   cwd: string;
   maxSteps?: number;
+  /** 工具执行前审批；默认 AllowAll（不拦截） */
+  permission?: PermissionGate;
 }
 
 export class AgentLoop implements AgentRunner {
@@ -38,12 +50,14 @@ export class AgentLoop implements AgentRunner {
   private tools: ToolRegistry;
   private cwd: string;
   private maxSteps: number;
+  private permission: PermissionGate;
 
   constructor(opts: AgentLoopOptions) {
     this.llm = opts.llm;
     this.tools = opts.tools;
     this.cwd = opts.cwd;
     this.maxSteps = opts.maxSteps ?? 20;
+    this.permission = opts.permission ?? new AllowAllPermissionGate();
   }
 
   /**
@@ -73,6 +87,15 @@ export class AgentLoop implements AgentRunner {
       state.addAssistant(text, toolCalls);
 
       for (const call of toolCalls) {
+        const risk = this.permission.assess(call);
+        const allowed = await this.confirmTool(call, risk, events);
+        if (!allowed) {
+          const content = `用户拒绝执行工具 ${call.name}（风险: ${risk}）`;
+          events.onToolDenied?.(call, content);
+          state.addToolResult(call.id, call.name, content);
+          continue;
+        }
+
         events.onToolCall?.(call);
         const ctx: ToolContext = {
           cwd: this.cwd,
@@ -108,5 +131,19 @@ export class AgentLoop implements AgentRunner {
     }
 
     return { text, toolCalls };
+  }
+
+  private async confirmTool(
+    call: ToolCall,
+    risk: RiskLevel,
+    events: AgentEvents
+  ): Promise<boolean> {
+    if (events.onPermissionPrompt) {
+      const gate = new DefaultPermissionGate({
+        confirm: events.onPermissionPrompt,
+      });
+      return gate.confirm(call, risk);
+    }
+    return this.permission.confirm(call, risk);
   }
 }

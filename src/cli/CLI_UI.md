@@ -180,6 +180,19 @@ UI 不直接理解模型协议，而是消费统一的 `AgentEvents`。
 工具参数会通过 `formatToolArgs()` 做 JSON 预览，长内容会截断。工具输出优先显示最终 `result`，
 没有最终结果时显示实时 `chunks`。输出通过 `truncate()` 截断，避免单个工具输出撑爆界面。
 
+## 权限确认
+
+本地 `AgentLoop` 在工具执行前会通过 permission gate 判断风险。如果需要人工确认，当前 Ink UI 会
+通过 `onPermissionPrompt` 弹出 `ApprovalPrompt`，而不是使用 stdio `readline`。
+
+确认交互：
+
+- `y`：允许执行工具。
+- `n` / `Esc` / `Ctrl+C`：拒绝执行工具。
+
+拒绝后，UI 会显示一张失败状态的工具卡片；AgentLoop 会把拒绝结果回填给模型，让模型基于“工具未执行”
+继续下一步推理。
+
 ## 状态栏
 
 `StatusBar` 根据 `running` 和 `status` 显示当前状态：
@@ -198,7 +211,7 @@ Enter 发送 · Shift+Enter 换行 · ↑/↓ 历史 · Ctrl+C 退出
 当前 UI 已经是状态化 TUI，但还不是完整 Codex CLI 的全部能力：
 
 - 运行中 `Ctrl+C` 只是提示请求中断，底层 `AgentRunner` 还没有 `AbortSignal` 或硬中断能力。
-- 没有 approval overlay，因此工具审批、沙箱重试、权限选择还没有 UI。
+- 目前 approval overlay 只覆盖本地 `AgentLoop` 的工具审批；Cursor provider 的工具审批还没有接入。
 - 没有文件 mention popup、图片粘贴、超大粘贴转附件、session selector。
 - Markdown 渲染是轻量实现，不支持表格、嵌套列表、链接解析等完整 Markdown 能力。
 - `MessageList` 目前只渲染最近 16 条 entry，没有滚动和分页。
@@ -210,6 +223,6 @@ Enter 发送 · Shift+Enter 换行 · ↑/↓ 历史 · Ctrl+C 退出
 1. 给 `AgentRunner.run()` 增加可选 `AbortSignal`，让运行中 `Ctrl+C` 真正中断模型流和工具执行。
 2. 把 `Entry` 更新逻辑抽成 reducer，便于测试和避免 UI 组件继续变大。
 3. 给 `MessageList` 增加滚动能力和历史保留策略。
-4. 如果工具层引入审批协议，再添加 approval overlay。
+4. 如果 Cursor provider 暴露审批协议，再接入同一套 approval overlay。
 5. 如果 Markdown 能力继续扩展，再考虑接入完整 parser，而不是继续堆正则。
 
