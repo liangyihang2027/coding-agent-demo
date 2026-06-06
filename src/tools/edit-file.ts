@@ -58,7 +58,21 @@ export const editFileTool: ToolDefinition<typeof params> = {
     try {
       await fs.writeFile(abs, replaced.result, "utf8");
     } catch (err) {
-      return { content: `写入失败: ${(err as Error).message}`, isError: true };
+      try {
+        await fs.writeFile(abs, source, "utf8");
+      } catch (rollbackErr) {
+        return {
+          content:
+            `写入失败: ${(err as Error).message}\n` +
+            `尝试回滚原内容也失败: ${(rollbackErr as Error).message}`,
+          isError: true,
+        };
+      }
+
+      return {
+        content: `写入失败，已回滚原内容: ${(err as Error).message}`,
+        isError: true,
+      };
     }
 
     return { content: `已编辑 ${args.path}` };
