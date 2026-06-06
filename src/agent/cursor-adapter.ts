@@ -18,9 +18,13 @@ import type { AgentRunner } from "./runner.js";
  * 对外暴露与 AgentLoop 相同的 run() 接口，CLI 可无缝切换 provider。
  */
 export class CursorAgentAdapter implements AgentRunner {
+  /** Cursor SDK 需要的运行配置；保存在 adapter 内，避免 CLI 直接依赖 SDK 参数形状。 */
   private config: CursorConfig;
+  /** 本地运行时的项目根目录，也是 SDK local mode 的执行边界。 */
   private cwd: string;
+  /** SDKAgent 创建成本较高且带会话状态，因此在 adapter 生命周期内复用。 */
   private agent: SDKAgent | null = null;
+  /** Cursor SDK 没有消费本地 ConversationState，首次 prompt 需要手动注入 system prompt。 */
   private primed = false;
 
   constructor(opts: { config: CursorConfig; cwd: string }) {
@@ -61,6 +65,7 @@ export class CursorAgentAdapter implements AgentRunner {
     }
   }
 
+  /** 释放 SDK agent，避免本地 store 或后台资源在 CLI 退出后继续占用。 */
   async close(): Promise<void> {
     if (!this.agent) return;
     await this.agent[Symbol.asyncDispose]();
@@ -68,6 +73,12 @@ export class CursorAgentAdapter implements AgentRunner {
     this.primed = false;
   }
 
+  /**
+   * 延迟创建 SDKAgent。
+   *
+   * 这样 CLI 启动时只完成轻量配置，真正运行请求时再根据 local/cloud 模式准备环境。
+   * local mode 使用当前工作区；cloud mode 需要 GitHub 仓库信息。
+   */
   private async ensureAgent(): Promise<SDKAgent> {
     if (this.agent) return this.agent;
 
@@ -106,7 +117,12 @@ export class CursorAgentAdapter implements AgentRunner {
     return this.agent;
   }
 
-  /** 首次对话注入 system prompt，后续 turn 只发用户输入 */
+  /**
+   * 首次对话注入 system prompt，后续 turn 只发用户输入。
+   *
+   * 自研 AgentLoop 会把 ConversationState 的完整消息列表传给模型；Cursor SDK 自己维护会话，
+   * 因此这里只在第一轮把系统约束拼进 prompt，避免每轮重复灌入同一段系统提示。
+   */
   private buildPrompt(state: ConversationState, userInput: string): string {
     if (this.primed) return userInput;
     this.primed = true;
@@ -116,6 +132,7 @@ export class CursorAgentAdapter implements AgentRunner {
     return `${system.content.trim()}\n\n---\n\n${userInput}`;
   }
 
+  /** 把 Cursor SDK 的消息事件翻译成 CLI 已经理解的 AgentEvents。 */
   private handleMessage(msg: SDKMessage, events: AgentEvents): string {
     switch (msg.type) {
       case "assistant":
@@ -128,6 +145,7 @@ export class CursorAgentAdapter implements AgentRunner {
     }
   }
 
+  /** 只把 assistant 文本块流给 UI；非文本块暂时不是阶段一 CLI 需要的展示内容。 */
   private handleAssistant(
     msg: Extract<SDKMessage, { type: "assistant" }>,
     events: AgentEvents
@@ -142,6 +160,12 @@ export class CursorAgentAdapter implements AgentRunner {
     return text;
   }
 
+  /**
+   * 将 Cursor SDK 的工具事件适配为本项目的 ToolCall/ToolResult 事件。
+   *
+   * 注意：这些工具由 Cursor SDK 执行，不经过本地 ToolRegistry、Diff 或 Sandbox。
+   * 所以它是 provider 适配路径，不是阶段一自研内核的学习主线。
+   */
   private handleToolCall(
     msg: Extract<SDKMessage, { type: "tool_call" }>,
     events: AgentEvents

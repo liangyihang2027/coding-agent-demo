@@ -18,8 +18,10 @@ import type {
 type AnyToolDefinition = ToolDefinition<z.ZodTypeAny>;
 
 export class ToolRegistry {
+  /** 工具名到定义的映射；模型调用工具时只给名字，所以这里必须保证名字唯一。 */
   private tools = new Map<string, AnyToolDefinition>();
 
+  /** 注册阶段集中校验唯一性，比运行时发现工具覆盖更容易定位配置错误。 */
   register<S extends z.ZodTypeAny>(tool: ToolDefinition<S>): this {
     if (this.tools.has(tool.name)) {
       throw new Error(`工具重复注册: ${tool.name}`);
@@ -28,6 +30,7 @@ export class ToolRegistry {
     return this;
   }
 
+  /** 供权限层或调试代码判断某个模型请求的工具是否在本地能力集合内。 */
   has(name: string): boolean {
     return this.tools.has(name);
   }
@@ -46,6 +49,10 @@ export class ToolRegistry {
 
   /**
    * 解析参数 + 校验 + 执行。
+   *
+   * 这里集中处理 JSON parse、zod safeParse 和异常包装，是为了让具体工具只关心业务动作。
+   * 对 AgentLoop 来说，无论失败发生在参数、校验还是执行阶段，都应该变成可回填给模型的 ToolResult。
+   *
    * 任何失败都包装成 isError 的 ToolResult 回填给模型，让它自我纠正，
    * 而不是直接抛异常中断整个 agent loop。
    */
@@ -138,6 +145,7 @@ export function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
     return withDescription(schema, { type: "string", enum: def.values });
   }
   if (schema instanceof z.ZodOptional || schema instanceof z.ZodDefault) {
+    // required 列表已经由父级 object 决定，这里只暴露内部真实类型给模型。
     return zodToJsonSchema(def.innerType);
   }
 

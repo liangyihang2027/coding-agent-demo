@@ -22,6 +22,7 @@ export const editFileTool: ToolDefinition<typeof params> = {
   async execute(args, ctx) {
     let abs: string;
     try {
+      // 编辑工具必须先收敛到工作目录边界，避免模型用相对路径意外写到项目外。
       abs = resolvePathInCwd(ctx.cwd, args.path);
     } catch (err) {
       return { content: (err as Error).message, isError: true };
@@ -34,6 +35,7 @@ export const editFileTool: ToolDefinition<typeof params> = {
       return { content: `读取失败: ${(err as Error).message}`, isError: true };
     }
 
+    // 这里调用 Diff 内核而不是直接整文件重写，保留后续替换为可靠 patch 引擎的边界。
     const replaced = strReplace({
       source,
       oldText: args.old_string,

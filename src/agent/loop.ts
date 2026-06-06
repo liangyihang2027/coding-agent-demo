@@ -46,10 +46,15 @@ export interface AgentLoopOptions {
 }
 
 export class AgentLoop implements AgentRunner {
+  /** LLMClient 是 provider 边界，AgentLoop 只消费统一的流式事件，不绑定 OpenAI SDK 细节。 */
   private llm: LLMClient;
+  /** 工具注册表集中管理模型可见能力，避免 AgentLoop 直接依赖具体文件/命令工具。 */
   private tools: ToolRegistry;
+  /** 所有工具执行的工作目录；阶段三沙箱会在这个边界上继续加强隔离。 */
   private cwd: string;
+  /** 单轮最大推理/行动次数，用来防止模型重复调工具造成死循环。 */
   private maxSteps: number;
+  /** 工具执行前的安全闸门；默认可放行，CLI 入口会注入真实审批策略。 */
   private permission: PermissionGate;
 
   constructor(opts: AgentLoopOptions) {
@@ -62,6 +67,9 @@ export class AgentLoop implements AgentRunner {
 
   /**
    * 跑一轮：给定用户输入，迭代到模型给出最终文本回答。
+   *
+   * 这是阶段一最小闭环的核心：把“模型决策”和“本地行动”放进同一个状态机。
+   * 每次工具执行后的结果都会写回 ConversationState，再交给模型继续判断下一步。
    * 返回最终的 assistant 文本。
    */
   async run(
@@ -112,7 +120,12 @@ export class AgentLoop implements AgentRunner {
     return finalText;
   }
 
-  /** 调一次模型，消费流式事件，返回本次文本 + 工具调用 */
+  /**
+   * 调一次模型，消费流式事件，返回本次文本 + 工具调用。
+   *
+   * AgentLoop 不解析 provider 原始 chunk；这些差异由 LLMClient 和 ToolCallAssembler 消化。
+   * 这里保留的只是 agent 需要关心的两个结果：展示给用户的文本、以及需要执行的工具。
+   */
   private async callModel(
     state: ConversationState,
     events: AgentEvents
@@ -138,6 +151,7 @@ export class AgentLoop implements AgentRunner {
     risk: RiskLevel,
     events: AgentEvents
   ): Promise<boolean> {
+    // UI 事件里的确认器优先级最高，这样 Ink overlay 可以接管默认 stdio confirm。
     if (events.onPermissionPrompt) {
       const gate = new DefaultPermissionGate({
         confirm: events.onPermissionPrompt,

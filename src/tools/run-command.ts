@@ -22,6 +22,7 @@ export const runCommandTool: ToolDefinition<typeof params> = {
   description: "在工作目录下执行一条 shell 命令，返回 stdout/stderr 与退出码。",
   parameters: params,
   async execute(args, ctx) {
+    // 工具层只负责把模型意图转成统一结果；进程、超时和安全细节属于 sandbox 内核。
     const result = await runCommand(args.command, {
       cwd: ctx.cwd,
       timeoutMs: args.timeout_ms ?? 30_000,

@@ -16,6 +16,7 @@ export const readFileTool: ToolDefinition<typeof params> = {
     "读取一个文本文件的内容，返回带行号的文本。超长文件会被截断。",
   parameters: params,
   async execute(args, ctx) {
+    // 工具接受相对路径是为了贴近用户表达；真正访问文件前统一落到 cwd 边界内解析。
     const abs = path.resolve(ctx.cwd, args.path);
     let text: string;
     try {
@@ -24,6 +25,7 @@ export const readFileTool: ToolDefinition<typeof params> = {
       return { content: `读取失败: ${(err as Error).message}`, isError: true };
     }
 
+    // 阶段一先用行数做粗粒度保护；阶段五会用 token 预算做更精确的上下文裁剪。
     const lines = text.split("\n");
     const truncated = lines.length > MAX_LINES;
     const shown = truncated ? lines.slice(0, MAX_LINES) : lines;

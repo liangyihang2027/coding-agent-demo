@@ -3,16 +3,20 @@ import "dotenv/config";
 export type LLMProvider = "openai" | "cursor";
 
 export interface OpenAIConfig {
+  /** 显式 discriminant，便于 CLI 入口安全选择本地 AgentLoop。 */
   provider: "openai";
   apiKey: string;
+  /** baseURL 可选，是为了兼容 OpenAI-compatible provider。 */
   baseURL: string | undefined;
   model: string;
 }
 
 export interface CursorConfig {
+  /** Cursor provider 走 SDK adapter，不经过本地 ToolRegistry/Sandbox。 */
   provider: "cursor";
   apiKey: string;
   model: string;
+  /** local 用当前工作区，cloud 需要远端 GitHub 仓库作为执行环境。 */
   runtime: "local" | "cloud";
   repoUrl?: string;
   startingRef?: string;
@@ -21,10 +25,17 @@ export interface CursorConfig {
 
 export type AppConfig = OpenAIConfig | CursorConfig;
 
+/** 识别误填到 LLM_API_KEY 的 Cursor key，给出更明确的配置错误。 */
 function isCursorKey(key: string): boolean {
   return key.startsWith("crsr_") || key.startsWith("cursor_");
 }
 
+/**
+ * 自动选择 provider。
+ *
+ * 显式 LLM_PROVIDER 优先；没有显式配置时根据 key 类型兜底推断，
+ * 这样新手快速启动更顺滑，同时仍能通过 env 固定学习主线。
+ */
 function resolveProvider(): LLMProvider {
   const explicit = process.env.LLM_PROVIDER?.trim().toLowerCase();
   if (explicit === "openai" || explicit === "cursor") {
@@ -38,6 +49,7 @@ function resolveProvider(): LLMProvider {
   return "openai";
 }
 
+/** Cursor API Key 允许从专用变量读取，也兼容早期误放在 LLM_API_KEY 的配置。 */
 function resolveCursorApiKey(): string {
   const key = process.env.CURSOR_API_KEY?.trim();
   if (key) return key;
@@ -50,6 +62,7 @@ function resolveCursorApiKey(): string {
   );
 }
 
+/** 加载 OpenAI 兼容配置；这是自研 AgentLoop 的阶段一学习主线。 */
 function loadOpenAIConfig(): OpenAIConfig {
   const apiKey = process.env.LLM_API_KEY?.trim();
   if (!apiKey) {
@@ -71,6 +84,7 @@ function loadOpenAIConfig(): OpenAIConfig {
   };
 }
 
+/** 加载 Cursor SDK 配置；这是 provider 适配演示路径，不代表本地内核能力。 */
 function loadCursorConfig(): CursorConfig {
   const runtime = process.env.CURSOR_RUNTIME?.trim().toLowerCase();
   const resolvedRuntime = runtime === "cloud" ? "cloud" : "local";

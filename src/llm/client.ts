@@ -22,7 +22,9 @@ export interface OpenAIClientOptions {
  *  - 文本增量即时 yield；tool_calls 用 assembler 拼接，结束时一次性 yield
  */
 export class OpenAIClient implements LLMClient {
+  /** 原始 SDK 客户端只封装在这里，避免 AgentLoop 依赖 provider 的具体 API。 */
   private client: OpenAI;
+  /** 模型名属于 provider 配置，不应该散落到每次 AgentLoop 调用里。 */
   private model: string;
 
   constructor(opts: OpenAIClientOptions) {
@@ -44,6 +46,7 @@ export class OpenAIClient implements LLMClient {
       stream: true,
     });
 
+    // 每次模型调用都新建 assembler，避免上一轮未完成的 tool_call 状态污染当前请求。
     const assembler = new ToolCallAssembler();
     let finishReason: string | null = null;
 
@@ -64,13 +67,19 @@ export class OpenAIClient implements LLMClient {
     }
 
     if (assembler.hasAny()) {
+      // tool_calls 只有在流结束后才完整；统一在末尾 yield，简化 AgentLoop 的状态机。
       yield { type: "tool_calls", toolCalls: assembler.finalize() };
     }
     yield { type: "done", finishReason };
   }
 }
 
-/** 内部 Message -> OpenAI chat message */
+/**
+ * 内部 Message -> OpenAI chat message。
+ *
+ * 这个转换函数是 provider 边界：项目内部保留自己的 Message 契约，
+ * 只有出站到 OpenAI 兼容接口时才处理 role、tool_call_id、tool_calls 等字段差异。
+ */
 function toOpenAIMessage(
   m: Message
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam {

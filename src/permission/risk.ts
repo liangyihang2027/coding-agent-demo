@@ -1,7 +1,12 @@
 import type { ToolCall } from "../types/index.js";
 import type { RiskLevel } from "./types.js";
 
-/** 按工具名的默认风险档位（可在 gate 构造时覆盖） */
+/**
+ * 按工具名的默认风险档位（可在 gate 构造时覆盖）。
+ *
+ * 这里先按“能力类别”做保守分级：读操作默认低风险，写操作中风险，
+ * 删除和命令执行高风险。后续可以再叠加路径、命令参数和会话策略。
+ */
 export const DEFAULT_TOOL_RISK: Record<string, RiskLevel> = {
   read_file: "low",
   list_directory: "low",
@@ -13,7 +18,12 @@ export const DEFAULT_TOOL_RISK: Record<string, RiskLevel> = {
   run_command: "high",
 };
 
-/** 危险 shell 片段（阶段 3 sandbox 可复用同一列表） */
+/**
+ * 危险 shell 片段（阶段 3 sandbox 可复用同一列表）。
+ *
+ * Permission 层的检测用于“执行前提醒用户”，不是最终安全边界；
+ * sandbox 仍需要在真正执行前二次拦截。
+ */
 export const DANGEROUS_COMMAND_PATTERNS: RegExp[] = [
   /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|.*\s+-[a-zA-Z]*f|--no-preserve-root)/i,
   /\bsudo\b/i,
@@ -35,6 +45,7 @@ export function isDangerousCommand(command: string): boolean {
   return DANGEROUS_COMMAND_PATTERNS.some((re) => re.test(trimmed));
 }
 
+/** run_command 的参数来自模型生成的 JSON 字符串，风险层必须先安全解析再检查命令。 */
 export function parseRunCommandArg(argumentsJson: string): string | null {
   try {
     const parsed = JSON.parse(argumentsJson || "{}") as { command?: unknown };
@@ -63,6 +74,7 @@ export function assessToolRisk(
   return base;
 }
 
+/** 把“风险等级”转换成“是否需要人确认”，让默认策略可以被测试和 CLI 模式覆盖。 */
 export function riskRequiresConfirmation(
   risk: RiskLevel,
   opts: { autoApproveLow?: boolean; autoApproveMedium?: boolean }

@@ -30,14 +30,19 @@ interface PartialToolCall {
 }
 
 export class ToolCallAssembler {
-  /** index -> 累积中的 tool_call */
+  /** index -> 累积中的 tool_call；index 是流式协议里最稳定的分片关联键。 */
   private byIndex = new Map<number, PartialToolCall>();
-  /** 用于在缺失 index 时按 id 兜底定位 */
+  /** 用于在缺失 index 时按 id 兜底定位，兼容部分 provider 的非标准分片。 */
   private idToIndex = new Map<string, number>();
-  /** 当 delta 既无 index 又无 id 时，落到的「当前游标」 */
+  /** 当 delta 既无 index 又无 id 时，落到的“当前游标”，避免参数续片丢失。 */
   private cursor = 0;
 
-  /** 处理一个 chunk 里的 tool_calls 分片数组 */
+  /**
+   * 处理一个 chunk 里的 tool_calls 分片数组。
+   *
+   * name 和 arguments 都采用追加而不是覆盖，因为 provider 可能把函数名或 JSON 参数
+   * 拆成多个 delta；只有 finalize 后的结果才适合交给 ToolRegistry 执行。
+   */
   push(deltas: RawToolCallDelta[] | undefined): void {
     if (!deltas) return;
     for (const delta of deltas) {
@@ -59,6 +64,7 @@ export class ToolCallAssembler {
     }
   }
 
+  /** 将 provider 的不完整定位信息归一成内部 index，隔离协议差异。 */
   private resolveIndex(delta: RawToolCallDelta): number {
     if (typeof delta.index === "number") return delta.index;
     if (delta.id && this.idToIndex.has(delta.id))

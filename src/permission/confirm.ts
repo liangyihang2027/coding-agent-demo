@@ -13,6 +13,7 @@ export interface StdioConfirmOptions {
 export function createStdioConfirm(
   opts: StdioConfirmOptions = {}
 ): PermissionConfirmHandler {
+  // 默认不放行是安全默认值：用户没有明确同意时，不执行会修改环境的动作。
   const defaultAllow = opts.defaultAllow ?? false;
 
   return async (request) => {
@@ -37,12 +38,12 @@ export function createStdioConfirm(
   };
 }
 
-/** 始终允许（本地开发 / 自动化测试） */
+/** 始终允许（本地开发 / 自动化测试），用于验证主流程而不阻塞在人工输入。 */
 export function createAlwaysAllowConfirm(): PermissionConfirmHandler {
   return async () => true;
 }
 
-/** 始终拒绝 */
+/** 始终拒绝，用于测试“拒绝也能回填给模型”的闭环。 */
 export function createAlwaysDenyConfirm(): PermissionConfirmHandler {
   return async () => false;
 }

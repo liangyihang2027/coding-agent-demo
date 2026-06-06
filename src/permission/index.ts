@@ -52,6 +52,12 @@ import type { PermissionConfirmHandler } from "./types.js";
 
 export type PermissionMode = "off" | "ask" | "allow";
 
+/**
+ * 从环境变量解析权限模式。
+ *
+ * 这让同一套 AgentLoop 可以在交互开发、演示和自动化测试里使用不同安全策略，
+ * 而不需要修改代码或重新组装 runner。
+ */
 export function resolvePermissionMode(
   env = process.env.CLAUDE_MINI_PERMISSION
 ): PermissionMode {
@@ -61,7 +67,12 @@ export function resolvePermissionMode(
   return "ask";
 }
 
-/** CLI 入口用的默认闸门 */
+/**
+ * CLI 入口用的默认闸门。
+ *
+ * 默认 ask 模式保守：低风险自动通过，中高风险确认。
+ * off/allow 主要服务本地实验或测试，不应该被当成 sandbox 的替代品。
+ */
 export function createDefaultPermissionGate(
   mode: PermissionMode = resolvePermissionMode()
 ) {
