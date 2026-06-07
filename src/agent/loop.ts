@@ -3,6 +3,8 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { PermissionGate, RiskLevel } from "../permission/index.js";
 import { AllowAllPermissionGate, DefaultPermissionGate } from "../permission/index.js";
 import type { PermissionConfirmHandler } from "../permission/types.js";
+import type { AuditRecorder, AuditStatus } from "../audit/index.js";
+import { buildAuditEvent, NullAuditRecorder } from "../audit/index.js";
 import { ConversationState } from "./state.js";
 import type { AgentRunner } from "./runner.js";
 
@@ -43,6 +45,8 @@ export interface AgentLoopOptions {
   maxSteps?: number;
   /** 工具执行前审批；默认 AllowAll（不拦截） */
   permission?: PermissionGate;
+  /** 工具调用审计记录；默认 Null（不记录） */
+  audit?: AuditRecorder;
 }
 
 export class AgentLoop implements AgentRunner {
@@ -56,6 +60,8 @@ export class AgentLoop implements AgentRunner {
   private maxSteps: number;
   /** 工具执行前的安全闸门；默认可放行，CLI 入口会注入真实审批策略。 */
   private permission: PermissionGate;
+  /** 工具调用审计记录；默认不记录，CLI 入口会注入落盘的 recorder。 */
+  private audit: AuditRecorder;
 
   constructor(opts: AgentLoopOptions) {
     this.llm = opts.llm;
@@ -63,6 +69,7 @@ export class AgentLoop implements AgentRunner {
     this.cwd = opts.cwd;
     this.maxSteps = opts.maxSteps ?? 20;
     this.permission = opts.permission ?? new AllowAllPermissionGate();
+    this.audit = opts.audit ?? new NullAuditRecorder();
   }
 
   /**
@@ -96,11 +103,13 @@ export class AgentLoop implements AgentRunner {
 
       for (const call of toolCalls) {
         const risk = this.permission.assess(call);
+        const startedAt = Date.now();
         const allowed = await this.confirmTool(call, risk, events);
         if (!allowed) {
           const content = `用户拒绝执行工具 ${call.name}（风险: ${risk}）`;
           events.onToolDenied?.(call, content);
           state.addToolResult(call.id, call.name, content);
+          await this.recordAudit(call, risk, false, "denied", startedAt, content);
           continue;
         }
 
@@ -110,8 +119,17 @@ export class AgentLoop implements AgentRunner {
           onChunk: events.onToolChunk,
         };
         const result = await this.tools.run(call.name, call.arguments, ctx);
-        events.onToolResult?.(call, result.content, result.isError ?? false);
+        const isError = result.isError ?? false;
+        events.onToolResult?.(call, result.content, isError);
         state.addToolResult(call.id, call.name, result.content);
+        await this.recordAudit(
+          call,
+          risk,
+          true,
+          isError ? "failed" : "succeeded",
+          startedAt,
+          result.content
+        );
       }
       // 回到循环顶部，让模型基于工具结果继续思考
     }
@@ -144,6 +162,28 @@ export class AgentLoop implements AgentRunner {
     }
 
     return { text, toolCalls };
+  }
+
+  /** 把一次工具调用的最终结果写入审计；失败不影响主流程（recorder 内部已吞异常）。 */
+  private async recordAudit(
+    call: ToolCall,
+    risk: RiskLevel,
+    approved: boolean,
+    status: AuditStatus,
+    startedAt: number,
+    outputSummary: string
+  ): Promise<void> {
+    await this.audit.record(
+      buildAuditEvent({
+        call,
+        riskLevel: risk,
+        approved,
+        status,
+        startedAt,
+        endedAt: Date.now(),
+        outputSummary,
+      })
+    );
   }
 
   private async confirmTool(

@@ -5,6 +5,7 @@ import { OpenAIClient } from "../llm/client.js";
 import { createDefaultRegistry } from "../tools/index.js";
 import { AgentLoop } from "../agent/loop.js";
 import { createDefaultPermissionGate } from "../permission/index.js";
+import { createDefaultAuditRecorder } from "../audit/index.js";
 import { ConversationState } from "../agent/state.js";
 import type { AgentRunner } from "../agent/runner.js";
 import { loadSystemPrompt } from "../prompts/load-system-prompt.js";
@@ -34,6 +35,7 @@ async function createRunner(
     tools,
     cwd,
     permission: createDefaultPermissionGate(),
+    audit: createDefaultAuditRecorder(cwd),
   });
 }
 
