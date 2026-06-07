@@ -6,9 +6,15 @@ import {
   buildAuditEvent,
   classifyToolSideEffect,
   createDefaultAuditRecorder,
-  JsonlAuditRecorder,
   NullAuditRecorder,
+  openAuditDb,
+  pruneAuditEvents,
+  SqliteAuditRecorder,
 } from "../src/audit/index.js";
+
+async function tmpDir(): Promise<string> {
+  return fs.mkdtemp(path.join(os.tmpdir(), "audit-"));
+}
 
 describe("classifyToolSideEffect", () => {
   it("只读工具归类为 read", () => {
@@ -29,58 +35,112 @@ describe("classifyToolSideEffect", () => {
 });
 
 describe("buildAuditEvent", () => {
-  it("组装结构化事件并计算耗时", () => {
+  it("denied 事件：记录等待耗时，execMs 为 null", () => {
     const event = buildAuditEvent({
       call: { id: "call-1", name: "delete_file", arguments: '{"path":"a.txt"}' },
+      sessionId: "s1",
+      step: 2,
+      callIndex: 0,
       riskLevel: "high",
       approved: false,
       status: "denied",
-      startedAt: 1000,
+      requestedAt: 1000,
+      approvedAt: 1200,
       endedAt: 1200,
       outputSummary: "用户拒绝",
     });
     expect(event.toolCallId).toBe("call-1");
     expect(event.sideEffectType).toBe("non_idempotent_write");
+    expect(event.sessionId).toBe("s1");
+    expect(event.step).toBe(2);
+    expect(event.callIndex).toBe(0);
     expect(event.approved).toBe(false);
     expect(event.status).toBe("denied");
-    expect(event.durationMs).toBe(200);
+    expect(event.waitMs).toBe(200);
+    expect(event.execMs).toBeNull();
   });
-});
 
-describe("JsonlAuditRecorder", () => {
-  it("以 JSONL 追加写入事件", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "audit-"));
-    const file = path.join(dir, "nested", "audit.jsonl");
-    const recorder = new JsonlAuditRecorder(file);
-
+  it("succeeded 事件：拆分审批等待与执行耗时", () => {
     const event = buildAuditEvent({
-      call: { id: "c1", name: "run_command", arguments: '{"command":"ls"}' },
+      call: { id: "c2", name: "run_command", arguments: '{"command":"ls"}' },
       riskLevel: "high",
       approved: true,
       status: "succeeded",
-      startedAt: 0,
-      endedAt: 5,
+      requestedAt: 0,
+      approvedAt: 5,
+      endedAt: 25,
       outputSummary: "ok",
     });
-    await recorder.record(event);
-    await recorder.record({ ...event, id: "audit_2" });
+    expect(event.waitMs).toBe(5);
+    expect(event.execMs).toBe(20);
+    expect(event.sessionId).toBeNull();
+  });
+});
 
-    const lines = (await fs.readFile(file, "utf8")).trim().split("\n");
-    expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[0]!).toolName).toBe("run_command");
+describe("SqliteAuditRecorder", () => {
+  it("把事件写入 audit.db 并可查询", async () => {
+    const dir = await tmpDir();
+    const db = openAuditDb(dir);
+    const recorder = new SqliteAuditRecorder(db);
+
+    await recorder.record(
+      buildAuditEvent({
+        call: { id: "c1", name: "run_command", arguments: '{"command":"ls"}' },
+        sessionId: "sess-1",
+        step: 0,
+        callIndex: 0,
+        riskLevel: "high",
+        approved: true,
+        status: "succeeded",
+        requestedAt: 0,
+        approvedAt: 5,
+        endedAt: 25,
+        outputSummary: "ok",
+      })
+    );
+
+    const rows = db
+      .prepare(`SELECT * FROM audit_events`)
+      .all() as Array<{ tool_name: string; approved: number; exec_ms: number }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.tool_name).toBe("run_command");
+    expect(rows[0]!.approved).toBe(1);
+    expect(rows[0]!.exec_ms).toBe(20);
+    db.close();
+  });
+});
+
+describe("pruneAuditEvents", () => {
+  it("删除早于保留期的记录", async () => {
+    const dir = await tmpDir();
+    const db = openAuditDb(dir);
+    const oldIso = new Date(Date.now() - 100 * 86400_000).toISOString();
+    db.prepare(
+      `INSERT INTO audit_events
+         (id, tool_name, actor, risk_level, side_effect, approved, status,
+          requested_at, ended_at, wait_ms, exec_ms, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("old", "run_command", "agent", "low", "command", 1, "succeeded", "x", "y", 0, 1, oldIso);
+
+    const removed = pruneAuditEvents(db, 90);
+    expect(removed).toBe(1);
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS n FROM audit_events`).get() as { n: number }).n
+    ).toBe(0);
+    db.close();
   });
 });
 
 describe("createDefaultAuditRecorder", () => {
-  it("off 时返回 NullAuditRecorder", () => {
-    expect(createDefaultAuditRecorder("/tmp", "off")).toBeInstanceOf(
-      NullAuditRecorder
-    );
+  it("off 时返回 NullAuditRecorder", async () => {
+    const dir = await tmpDir();
+    expect(createDefaultAuditRecorder(dir, "off")).toBeInstanceOf(NullAuditRecorder);
   });
 
-  it("默认返回 JsonlAuditRecorder", () => {
-    expect(createDefaultAuditRecorder("/tmp", undefined)).toBeInstanceOf(
-      JsonlAuditRecorder
-    );
+  it("默认返回 SqliteAuditRecorder", async () => {
+    const dir = await tmpDir();
+    const recorder = createDefaultAuditRecorder(dir, undefined);
+    expect(recorder).toBeInstanceOf(SqliteAuditRecorder);
+    (recorder as SqliteAuditRecorder).close();
   });
 });

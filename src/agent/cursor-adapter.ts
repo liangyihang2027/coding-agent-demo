@@ -32,16 +32,26 @@ export class CursorAgentAdapter implements AgentRunner {
     this.cwd = opts.cwd;
   }
 
+  /** CLI 启动时预热 SDK Agent，避免首条用户消息才触发 Agent.create。 */
+  async warmup(): Promise<void> {
+    await this.ensureAgent();
+  }
+
   async run(
     state: ConversationState,
     userInput: string,
     events: AgentEvents = {}
   ): Promise<string> {
+    if (!this.agent) {
+      events.onPhase?.("connecting");
+    }
     const agent = await this.ensureAgent();
     const prompt = this.buildPrompt(state, userInput);
 
     try {
+      events.onPhase?.("requesting");
       const run = await agent.send(prompt);
+      events.onPhase?.("waiting_model");
       let streamedText = "";
 
       for await (const msg of run.stream()) {

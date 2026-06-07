@@ -5,6 +5,7 @@ import { AllowAllPermissionGate, DefaultPermissionGate } from "../permission/ind
 import type { PermissionConfirmHandler } from "../permission/types.js";
 import type { AuditRecorder, AuditStatus } from "../audit/index.js";
 import { buildAuditEvent, NullAuditRecorder } from "../audit/index.js";
+import type { AgentPhase } from "./phases.js";
 import { ConversationState } from "./state.js";
 import type { AgentRunner } from "./runner.js";
 
@@ -19,6 +20,8 @@ import type { AgentRunner } from "./runner.js";
  */
 
 export interface AgentEvents {
+  /** 运行阶段变化（连接 / 发请求 / 等首 token），便于 CLI 区分卡顿来源 */
+  onPhase?: (phase: AgentPhase) => void;
   /** 模型文本增量（用于 CLI 流式渲染） */
   onText?: (delta: string) => void;
   /** 模型决定调用工具 */
@@ -84,7 +87,9 @@ export class AgentLoop implements AgentRunner {
     userInput: string,
     events: AgentEvents = {}
   ): Promise<string> {
+    state.setStep(null);
     state.addUser(userInput);
+    const sessionId = state.sessionId ?? null;
 
     let finalText = "";
 
@@ -99,17 +104,33 @@ export class AgentLoop implements AgentRunner {
       }
 
       // 先把 assistant（含 tool_calls）记入历史，再逐个执行并回填
+      state.setStep(step);
       state.addAssistant(text, toolCalls);
 
+      let callIndex = 0;
       for (const call of toolCalls) {
         const risk = this.permission.assess(call);
-        const startedAt = Date.now();
+        const requestedAt = Date.now();
         const allowed = await this.confirmTool(call, risk, events);
+        const approvedAt = Date.now();
         if (!allowed) {
           const content = `用户拒绝执行工具 ${call.name}（风险: ${risk}）`;
           events.onToolDenied?.(call, content);
           state.addToolResult(call.id, call.name, content);
-          await this.recordAudit(call, risk, false, "denied", startedAt, content);
+          await this.recordAudit({
+            call,
+            sessionId,
+            step,
+            callIndex,
+            risk,
+            approved: false,
+            status: "denied",
+            requestedAt,
+            approvedAt,
+            endedAt: approvedAt,
+            outputSummary: content,
+          });
+          callIndex += 1;
           continue;
         }
 
@@ -119,17 +140,24 @@ export class AgentLoop implements AgentRunner {
           onChunk: events.onToolChunk,
         };
         const result = await this.tools.run(call.name, call.arguments, ctx);
+        const endedAt = Date.now();
         const isError = result.isError ?? false;
         events.onToolResult?.(call, result.content, isError);
         state.addToolResult(call.id, call.name, result.content);
-        await this.recordAudit(
+        await this.recordAudit({
           call,
+          sessionId,
+          step,
+          callIndex,
           risk,
-          true,
-          isError ? "failed" : "succeeded",
-          startedAt,
-          result.content
-        );
+          approved: true,
+          status: isError ? "failed" : "succeeded",
+          requestedAt,
+          approvedAt,
+          endedAt,
+          outputSummary: result.content,
+        });
+        callIndex += 1;
       }
       // 回到循环顶部，让模型基于工具结果继续思考
     }
@@ -151,8 +179,14 @@ export class AgentLoop implements AgentRunner {
     const llmTools = this.tools.toLLMTools();
     let text = "";
     let toolCalls: ToolCall[] = [];
+    let sawStreamEvent = false;
 
+    events.onPhase?.("requesting");
     for await (const ev of this.llm.stream([...state.all()], llmTools)) {
+      if (!sawStreamEvent) {
+        events.onPhase?.("waiting_model");
+        sawStreamEvent = true;
+      }
       if (ev.type === "text") {
         text += ev.delta;
         events.onText?.(ev.delta);
@@ -165,23 +199,32 @@ export class AgentLoop implements AgentRunner {
   }
 
   /** 把一次工具调用的最终结果写入审计；失败不影响主流程（recorder 内部已吞异常）。 */
-  private async recordAudit(
-    call: ToolCall,
-    risk: RiskLevel,
-    approved: boolean,
-    status: AuditStatus,
-    startedAt: number,
-    outputSummary: string
-  ): Promise<void> {
+  private async recordAudit(input: {
+    call: ToolCall;
+    sessionId: string | null;
+    step: number;
+    callIndex: number;
+    risk: RiskLevel;
+    approved: boolean;
+    status: AuditStatus;
+    requestedAt: number;
+    approvedAt: number;
+    endedAt: number;
+    outputSummary: string;
+  }): Promise<void> {
     await this.audit.record(
       buildAuditEvent({
-        call,
-        riskLevel: risk,
-        approved,
-        status,
-        startedAt,
-        endedAt: Date.now(),
-        outputSummary,
+        call: input.call,
+        sessionId: input.sessionId,
+        step: input.step,
+        callIndex: input.callIndex,
+        riskLevel: input.risk,
+        approved: input.approved,
+        status: input.status,
+        requestedAt: input.requestedAt,
+        approvedAt: input.approvedAt,
+        endedAt: input.endedAt,
+        outputSummary: input.outputSummary,
       })
     );
   }

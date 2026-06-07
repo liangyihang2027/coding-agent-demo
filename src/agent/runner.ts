@@ -15,6 +15,11 @@ export interface AgentRunner {
     userInput: string,
     events?: AgentEvents
   ): Promise<string>;
+  /**
+   * 可选预热钩子：CLI 启动后立即调用，把首条消息前的重初始化（如 Cursor SDK Agent.create）
+   * 提前完成，避免用户发第一条消息时才卡顿。
+   */
+  warmup?(): Promise<void>;
   /** 可选生命周期钩子，用于释放 SDK agent、文件句柄或后台连接。 */
   close?(): Promise<void>;
 }

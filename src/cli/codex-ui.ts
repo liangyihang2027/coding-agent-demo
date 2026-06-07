@@ -4,6 +4,7 @@ import type { AppConfig } from "./config.js";
 import type { AgentRunner } from "../agent/runner.js";
 import type { ConversationState } from "../agent/state.js";
 import type { PermissionRequest } from "../permission/types.js";
+import { formatAgentPhase } from "../agent/phases.js";
 
 type Entry =
   | { id: string; kind: "welcome"; text: string }
@@ -26,6 +27,8 @@ interface CodexLikeAppProps {
   state: ConversationState;
   config: AppConfig;
   cwd: string;
+  /** CLI 入口已发起的预热；UI 挂载后继续等待，就绪后才允许提交。 */
+  warmupPromise?: Promise<void>;
 }
 
 interface ComposerProps {
@@ -49,6 +52,7 @@ export function CodexLikeApp({
   state,
   config,
   cwd,
+  warmupPromise,
 }: CodexLikeAppProps): React.ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -56,7 +60,14 @@ export function CodexLikeApp({
     { id: "welcome", kind: "welcome", text: "欢迎奕航大神！" },
   ]);
   const [running, setRunning] = useState(false);
-  const [status, setStatus] = useState("准备就绪");
+  const [ready, setReady] = useState(warmupPromise == null);
+  const warmupStatus =
+    warmupPromise ?
+      config.provider === "cursor" ?
+        "连接 Agent 中"
+      : "初始化中"
+    : "准备就绪";
+  const [status, setStatus] = useState(warmupStatus);
   const [history, setHistory] = useState<string[]>([]);
   const [approval, setApproval] = useState<PendingApproval | null>(null);
   const seq = useRef(0);
@@ -68,6 +79,34 @@ export function CodexLikeApp({
       void runner.close?.();
     };
   }, [runner]);
+
+  useEffect(() => {
+    if (!warmupPromise) return;
+    let cancelled = false;
+    void warmupPromise
+      .then(() => {
+        if (cancelled) return;
+        setReady(true);
+        setStatus("准备就绪");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setReady(true);
+        setStatus("初始化失败");
+        setEntries((prev) => [
+          ...prev,
+          {
+            id: `notice-warmup-${Date.now()}`,
+            kind: "notice",
+            text: `初始化失败: ${(err as Error).message}`,
+            tone: "error",
+          },
+        ]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [warmupPromise]);
 
   const nextId = useCallback((prefix: string) => {
     seq.current += 1;
@@ -114,7 +153,7 @@ export function CodexLikeApp({
   const submit = useCallback(
     (raw: string) => {
       const input = raw.trim();
-      if (!input || running) return;
+      if (!input || running || !ready) return;
       if (input === "/exit" || input === "/quit") {
         closeApp();
         return;
@@ -128,10 +167,14 @@ export function CodexLikeApp({
         { id: nextId("user"), kind: "user", text: input },
       ]);
       setRunning(true);
-      setStatus("思考中");
+      setStatus("发送请求");
 
       void runner
         .run(state, input, {
+          onPhase: (phase) => {
+            if (turn !== turnSeq.current) return;
+            setStatus(formatAgentPhase(phase));
+          },
           onPermissionPrompt: (request) =>
             new Promise<boolean>((resolve) => {
               currentAssistantId = null;
@@ -231,7 +274,7 @@ export function CodexLikeApp({
           setStatus("准备就绪");
         });
     },
-    [addNotice, closeApp, nextId, runner, running, state]
+    [addNotice, closeApp, nextId, ready, runner, running, state]
   );
 
   const handleExit = useCallback(() => {
@@ -258,9 +301,9 @@ export function CodexLikeApp({
     h(Header, { config, cwd, running }),
     h(MessageList, { entries: visibleEntries, height: transcriptHeight }),
     approval ? h(ApprovalPrompt, { request: approval.request }) : null,
-    h(StatusBar, { status, running }),
+    h(StatusBar, { status, running, ready }),
     h(Composer, {
-      disabled: running,
+      disabled: running || !ready,
       history,
       status,
       onSubmit: submit,
@@ -343,11 +386,20 @@ function ToolCard({ tool }: { tool: Extract<Entry, { kind: "tool" }> }) {
   );
 }
 
-function StatusBar({ status, running }: { status: string; running: boolean }) {
+function StatusBar({
+  status,
+  running,
+  ready,
+}: {
+  status: string;
+  running: boolean;
+  ready: boolean;
+}) {
+  const idleColor = ready ? "gray" : "yellow";
   return h(
     Box,
     { paddingX: 1 },
-    h(Text, { color: running ? "yellow" : "gray" }, running ? `● ${status}` : `○ ${status}`),
+    h(Text, { color: running ? "yellow" : idleColor }, running ? `● ${status}` : `○ ${status}`),
     h(Text, { dimColor: true }, "   Enter 发送 · Shift+Enter 换行 · ↑/↓ 历史 · Ctrl+C 退出")
   );
 }
@@ -471,7 +523,7 @@ function Composer({ disabled, history, status, onSubmit, onExit, onInterrupt }: 
   return h(
     Box,
     { flexDirection: "column", borderStyle: "round", borderColor: disabled ? "gray" : "cyan", paddingX: 1 },
-    h(Text, { dimColor: true }, disabled ? `正在运行：${status}` : "和 yihang cc 说下骚话～"),
+    h(Text, { dimColor: true }, disabled ? (status === "初始化中" ? "正在初始化，请稍候…" : `正在运行：${status}`) : "和 yihang cc 说下骚话～"),
     h(RenderInput, { value, cursor, disabled })
   );
 }

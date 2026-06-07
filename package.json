@@ -13,11 +13,11 @@
     "start": "node dist/cli/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "postinstall": "pnpm rebuild sqlite3"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.17",
+    "better-sqlite3": "^11.8.1",
     "dotenv": "^16.4.5",
     "ink": "^7.0.5",
     "openai": "^4.67.3",
@@ -25,6 +25,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.7.5",
     "@types/react": "^19.2.16",
     "tsx": "^4.19.1",
@@ -36,7 +37,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "sqlite3"
+      "better-sqlite3"
     ]
   }
 }
