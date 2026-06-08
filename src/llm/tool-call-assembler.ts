@@ -1,7 +1,7 @@
 import type { ToolCall } from "../types/index.js";
 
 /**
- * 流式 tool_calls 拼接器（阶段 1 得分点：状态机 + 流式协议处理）。
+ * 流式 tool_calls 拼接器。
  *
  * 背景：OpenAI 兼容接口在流式模式下，会把每个 tool_call 拆成很多分片
  * 逐个 chunk 推送，形如：

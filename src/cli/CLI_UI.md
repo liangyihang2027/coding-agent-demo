@@ -1,11 +1,12 @@
 # CLI UI 实现说明
 
-当前 CLI UI 使用 Ink + React 实现，入口是 `src/cli/index.ts`，核心界面组件在
-`src/cli/codex-ui.ts`。它替代了早期基于 `readline` 和 `stdout.write` 的线性输出方式，
-把终端界面改成接近 Codex CLI 的状态化聊天 UI。
+当前 CLI UI 使用 Ink + React 实现，入口是 `src/cli/index.ts`，核心编排组件在
+`src/cli/codex-ui.ts`，展示组件、输入编辑器、Markdown 渲染等拆分在 `src/cli/codex/` 下。
+它替代了早期基于 `readline` 和 `stdout.write` 的线性输出方式，把终端界面改成接近
+Codex CLI 的状态化聊天 UI。
 
-`src/cli/ui.ts` 仍然保留在仓库里，但当前入口已经不再引用 `TurnUI`。如果后续继续维护
-Codex 风格界面，应优先改 `src/cli/codex-ui.ts`。
+`codex-ui.ts` 只负责状态流转（把 runner 事件翻译成 transcript 更新）；具体视图渲染、
+输入按键处理、Markdown 解析都在 `src/cli/codex/` 的对应模块里。
 
 ## 入口流程
 
@@ -66,7 +67,7 @@ flowchart TD
 
 ## Transcript 数据模型
 
-`src/cli/codex-ui.ts` 中的 `Entry` 类型表示所有可展示单元：
+`src/cli/codex/entries.ts` 中的 `Entry` 类型表示所有可展示单元：
 
 ```ts
 type Entry =

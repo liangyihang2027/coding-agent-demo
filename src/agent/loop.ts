@@ -10,7 +10,7 @@ import { ConversationState } from "./state.js";
 import type { AgentRunner } from "./runner.js";
 
 /**
- * Agent Loop / Harness（阶段 1 必做，得分点：状态机设计）。
+ * Agent Loop / Harness。
  *
  * ReAct 控制流：思考(LLM) → 决定调工具 → 执行工具 → 回填结果 → 再思考……
  * 直到模型不再调工具（给出最终回答）或触发安全阀。

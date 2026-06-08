@@ -11,7 +11,8 @@ import type { Message } from "../types/index.js";
  *   [ ] 历史合并 / 折叠
  *   [ ] 接入 ConversationState（见 src/agent/state.ts）
  *
- * 面试得分点：算法 + 启发式设计、压缩 vs 信息损失的取舍。
+ * 设计取向：在「压缩历史省 token」与「保留信息不失真」之间做取舍，
+ * 优先保住系统提示和近期对话，对久远历史做摘要折叠。
  */
 
 export interface ContextManager {
