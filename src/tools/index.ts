@@ -5,6 +5,7 @@ import { runCommandTool } from "./run-command.js";
 import { listDirectoryTool } from "./list-directory.js";
 import { globFilesTool } from "./glob-files.js";
 import { grepTool } from "./grep.js";
+import { codebaseSearchTool } from "./codebase-search.js";
 import { deleteFileTool } from "./delete-file.js";
 import { editFileTool } from "./edit-file.js";
 
@@ -22,6 +23,7 @@ export function createDefaultRegistry(): ToolRegistry {
     .register(listDirectoryTool)
     .register(globFilesTool)
     .register(grepTool)
+    .register(codebaseSearchTool)
     .register(deleteFileTool)
     .register(runCommandTool);
 }
