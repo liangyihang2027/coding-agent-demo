@@ -1,16 +1,33 @@
 /**
- * Diff / Patch 引擎。
+ * ⭐ Diff / Patch 引擎（阶段 2 灵魂模块，全程手写、禁止调库）。
  *
  * 设计目标：可靠的局部文件编辑，不靠「整文件重写」。
  * 整文件重写既浪费 token，又让 diff 难以审阅；局部替换只动必要的几行，
  * 成本低、变更可读、也更容易在出错时定位。
  *
- * 已实现：
- *   [x] str_replace：在文件文本中精确替换一段 old -> new
- *   [x] 边界：匹配不唯一时报错并要求更多上下文；匹配 0 次时报错
- *   [x] 空白/缩进差异、行尾(CRLF/LF)差异的轻量容忍
- *   [ ] 行级 patch apply + 失败回滚
+ * 三种能力、各司其职（按「知道多少信息」从强到弱）：
+ *   1. str_replace（本文件）——已知「要换哪段精确文本」时最省心：唯一命中才替换，
+ *      容忍行尾/空白漂移，非唯一即报 ambiguous，绝不猜位置。
+ *   2. Myers diff + unified diff（myers.ts / unified.ts）——只有「新旧两份文本」时，
+ *      手写 Myers 最短编辑脚本算出最小增删，渲染成业界通用的 unified diff，用于预览/审阅。
+ *   3. patch apply（patch.ts）——拿到「一段补丁」时，带上下文校验 + 原子回滚地打回文本。
+ *
+ * 三者共享一个底层取舍：永远「最小改动 + 可校验 + 失败不留半成品」。
  */
+
+export {
+  diffLines,
+  splitLines,
+  type LineOp,
+} from "./myers.js";
+export {
+  formatUnifiedDiff,
+  type UnifiedDiffOptions,
+} from "./unified.js";
+export {
+  applyPatch,
+  type ApplyPatchResult,
+} from "./patch.js";
 
 export interface StrReplaceInput {
   source: string;

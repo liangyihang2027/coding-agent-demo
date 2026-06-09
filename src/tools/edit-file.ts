@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { z } from "zod";
-import { strReplace } from "../diff/index.js";
+import { strReplace, formatUnifiedDiff } from "../diff/index.js";
 import type { ToolDefinition } from "../types/index.js";
 import { resolvePathInCwd } from "./path-utils.js";
 
@@ -11,8 +11,10 @@ const params = z.object({
 });
 
 /**
- * edit_file：基于 Diff 引擎的局部替换（阶段 2 最小可用版）。
- * 比 write_file 整文件重写更省 token、更可读。
+ * edit_file：基于 Diff 引擎的局部替换。
+ *
+ * 设计价值：比 write_file 整文件重写更省 token、更可读。成功后回填 unified diff，
+ * 让模型与 CLI 都能确认「到底改了哪几行」，而不是只得到一句「已编辑」。
  */
 export const editFileTool: ToolDefinition<typeof params> = {
   name: "edit_file",
@@ -75,6 +77,11 @@ export const editFileTool: ToolDefinition<typeof params> = {
       };
     }
 
-    return { content: `已编辑 ${args.path}` };
+    // 回填本次改动的 unified diff：让模型/CLI 看清实际生效的行级变更。
+    const diff = formatUnifiedDiff(source, replaced.result, {
+      oldName: `a/${args.path}`,
+      newName: `b/${args.path}`,
+    });
+    return { content: `已编辑 ${args.path}\n${diff}`.trimEnd() };
   },
 };
