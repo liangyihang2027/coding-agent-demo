@@ -3,8 +3,15 @@ import { createDefaultRegistry } from "../tools/index.js";
 import { AgentLoop } from "../agent/loop.js";
 import { createDefaultPermissionGate } from "../permission/index.js";
 import { createDefaultAuditRecorder } from "../audit/index.js";
+import { HeuristicContextManager } from "../context/index.js";
 import type { AgentRunner } from "../agent/runner.js";
 import type { AppConfig } from "./config.js";
+
+/** 上下文 token 预算：可用 CLAUDE_MINI_CONTEXT_BUDGET 覆盖，默认 16000。 */
+function resolveContextBudget(): number {
+  const raw = Number(process.env.CLAUDE_MINI_CONTEXT_BUDGET);
+  return Number.isFinite(raw) && raw > 0 ? raw : 16000;
+}
 
 /**
  * 根据 provider 组装 AgentRunner。
@@ -30,5 +37,7 @@ export async function createRunner(
     cwd,
     permission: createDefaultPermissionGate(),
     audit: createDefaultAuditRecorder(cwd),
+    context: new HeuristicContextManager(),
+    contextBudget: resolveContextBudget(),
   });
 }

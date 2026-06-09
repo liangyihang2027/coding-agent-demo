@@ -5,6 +5,7 @@ import { AllowAllPermissionGate, DefaultPermissionGate } from "../permission/ind
 import type { PermissionConfirmHandler } from "../permission/types.js";
 import type { AuditRecorder, AuditStatus } from "../audit/index.js";
 import { buildAuditEvent, NullAuditRecorder } from "../audit/index.js";
+import type { ContextManager } from "../context/index.js";
 import type { AgentPhase } from "./phases.js";
 import { ConversationState } from "./state.js";
 import type { AgentRunner } from "./runner.js";
@@ -50,6 +51,10 @@ export interface AgentLoopOptions {
   permission?: PermissionGate;
   /** 工具调用审计记录；默认 Null（不记录） */
   audit?: AuditRecorder;
+  /** 上下文压缩器；不传则不压缩（发送完整历史，向后兼容） */
+  context?: ContextManager;
+  /** 发模型前的 token 预算（仅在提供 context 时生效），默认 16000 */
+  contextBudget?: number;
 }
 
 export class AgentLoop implements AgentRunner {
@@ -65,6 +70,10 @@ export class AgentLoop implements AgentRunner {
   private permission: PermissionGate;
   /** 工具调用审计记录；默认不记录，CLI 入口会注入落盘的 recorder。 */
   private audit: AuditRecorder;
+  /** 上下文压缩器；未注入时发送完整历史（阶段 5 之前的行为）。 */
+  private context?: ContextManager;
+  /** 发模型前的 token 预算（仅在启用 context 时生效）。 */
+  private contextBudget: number;
 
   constructor(opts: AgentLoopOptions) {
     this.llm = opts.llm;
@@ -73,6 +82,8 @@ export class AgentLoop implements AgentRunner {
     this.maxSteps = opts.maxSteps ?? 20;
     this.permission = opts.permission ?? new AllowAllPermissionGate();
     this.audit = opts.audit ?? new NullAuditRecorder();
+    this.context = opts.context;
+    this.contextBudget = opts.contextBudget ?? 16000;
   }
 
   /**
@@ -181,8 +192,13 @@ export class AgentLoop implements AgentRunner {
     let toolCalls: ToolCall[] = [];
     let sawStreamEvent = false;
 
+    // 只压缩「发给模型的副本」；state 仍保留完整历史用于落库与调试。
+    const history = this.context
+      ? this.context.compact(state.all(), this.contextBudget)
+      : [...state.all()];
+
     events.onPhase?.("requesting");
-    for await (const ev of this.llm.stream([...state.all()], llmTools)) {
+    for await (const ev of this.llm.stream(history, llmTools)) {
       if (!sawStreamEvent) {
         events.onPhase?.("waiting_model");
         sawStreamEvent = true;
